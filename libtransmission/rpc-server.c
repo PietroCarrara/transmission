@@ -639,6 +639,15 @@ static void handle_request(struct evhttp_request* req, void* arg)
 
         evhttp_add_header(req->output_headers, "Server", MY_REALM);
 
+        // Allow CORS requests
+        // TODO: Add a option for allowed hosts. "*" is too insecure,
+        // and should be blocked even if the user directly allows it.
+        evhttp_add_header(req->output_headers, "Access-Control-Allow-Origin", "*"); // CORS clients can be hosted on any URL (allowed values for the Origin header)
+        evhttp_add_header(req->output_headers, "Access-Control-Allow-Headers", "*"); // CORS clients can send any header
+        evhttp_add_header(req->output_headers, "Access-Control-Allow-Methods", "GET, POST, HEAD, PUT, DELETE, OPTIONS"); // CORS clients can use these HTTP methods
+        evhttp_add_header(req->output_headers, "Access-Control-Expose-Headers", TR_RPC_SESSION_ID_HEADER); // CORS clients can access the sessionid header
+        evhttp_add_header(req->output_headers, "Access-Control-Max-Age", "86400"); // Cache these options for 24 hours
+
         if (server->loginattempts == 100)
         {
             send_simple_response(req, 403, "<p>Too many unsuccessful login attempts. Please restart transmission-daemon.</p>");
@@ -652,6 +661,16 @@ static void handle_request(struct evhttp_request* req, void* arg)
                 "<p>Either disable the IP address whitelist or add your address to it.</p>"
                 "<p>If you're editing settings.json, see the 'rpc-whitelist' and 'rpc-whitelist-enabled' entries.</p>"
                 "<p>If you're still using ACLs, use a whitelist instead. See the transmission-daemon manpage for details.</p>");
+            return;
+        }
+
+        // An OPTIONS request is issued just to check if CORS
+        // headers are present. Just respond with nothing.
+        // We should never respond with sensitive data
+        // a request of this type, such as a session key.
+        if (req->type == EVHTTP_REQ_OPTIONS) {
+            send_simple_response(req, HTTP_NOCONTENT, NULL);
+            tr_free(user);
             return;
         }
 
@@ -814,6 +833,15 @@ static void startServer(void* vserver)
     }
 
     struct evhttp* httpd = evhttp_new(server->session->event_base);
+    // OPTIONS isn't included in the default methods,
+    // and we need it to implement CORS
+    evhttp_set_allowed_methods(httpd,
+        EVHTTP_REQ_GET |
+        EVHTTP_REQ_POST |
+        EVHTTP_REQ_HEAD |
+        EVHTTP_REQ_PUT |
+        EVHTTP_REQ_DELETE |
+        EVHTTP_REQ_OPTIONS);
 
     char const* address = tr_rpcGetBindAddress(server);
 
